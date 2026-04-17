@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import datetime, date, timedelta
 import gspread
+import pytz
 from google.oauth2.service_account import Credentials
 import pandas as pd
 
@@ -195,7 +196,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 4. HEADER ---
-now = datetime.now()
+# Menentukan zona waktu Jakarta
+tz_jakarta = pytz.timezone('Asia/Jakarta')
+# Mengambil waktu sekarang berdasarkan zona waktu tersebut
+now = datetime.now(tz_jakarta)
+
 hari_id = {
     "Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu",
     "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"
