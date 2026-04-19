@@ -4,7 +4,6 @@ import gspread
 import pytz
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from streamlit_autorefresh import st_autorefresh
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
