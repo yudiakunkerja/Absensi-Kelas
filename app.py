@@ -4,6 +4,7 @@ import gspread
 import pytz
 from google.oauth2.service_account import Credentials
 import pandas as pd
+import streamlit.components.v1 as components
 
 # --- 1. KONFIGURASI HALAMAN ---
 st.set_page_config(
@@ -42,7 +43,7 @@ def get_sheet_conn():
         st.error(f"Koneksi Gagal: {e}")
         return None
 
-# Cache data sheets selama 60 detik agar tidak sering request
+# --- Cache data 60 detik ---
 @st.cache_data(ttl=60)
 def get_data_siswa():
     try:
@@ -61,7 +62,8 @@ def get_data_absen():
         client = get_sheet_conn()
         sh = client.open_by_key(SPREADSHEET_ID)
         ws = sh.worksheet("Sheet1")
-        return ws.get_all_values()
+        data = ws.get_all_values()
+        return data
     except Exception as e:
         st.error(f"Gagal ambil data absen: {e}")
         return []
@@ -73,101 +75,161 @@ def get_worksheet(name):
         try:
             return sh.worksheet(name)
         except gspread.exceptions.WorksheetNotFound:
-            return sh.add_worksheet(title=name, rows=1000, cols=10)
+            ws = sh.add_worksheet(title=name, rows=1000, cols=10)
+            # Tambah header otomatis jika sheet baru
+            ws.append_row(["Tanggal", "Jam", "Nama", "Status", "Keterangan"])
+            return ws
     return None
+
+def cek_sudah_absen(nama, tanggal_hari_ini):
+    """Cek apakah siswa sudah absen hari ini"""
+    try:
+        data = get_data_absen()
+        for baris in data:
+            if len(baris) >= 3:
+                if baris[0] == tanggal_hari_ini and baris[2] == nama:
+                    return True
+        return False
+    except:
+        return False
 
 # --- 3. TAMPILAN CSS ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Nunito', sans-serif; }
+    html, body, [class*="css"] { 
+        font-family: 'Nunito', sans-serif; 
+    }
     .stApp { 
         background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 60%, #fbc2eb 100%); 
         min-height: 100vh; 
     }
     .judul-ceria { 
         font-family: 'Nunito', cursive, sans-serif; 
-        color: #ff6f61; text-align: center; 
-        font-size: 2.8rem; font-weight: 800; 
+        color: #ff6f61; 
+        text-align: center; 
+        font-size: 2.8rem; 
+        font-weight: 800; 
         text-shadow: 3px 3px 0px #fff; 
         margin-bottom: 5px; 
     }
     .subtitle-ceria { 
-        text-align: center; color: #5a4fcf; 
-        font-size: 1.1rem; font-weight: 700; 
+        text-align: center; 
+        color: #5a4fcf; 
+        font-size: 1.1rem; 
+        font-weight: 700; 
         margin-bottom: 5px; 
-    }
-    .jam-digital { 
-        text-align: center; font-size: 1.3rem; 
-        font-weight: 800; color: #444; 
-        margin-bottom: 20px; 
-        background: rgba(255,255,255,0.7); 
-        border-radius: 15px; padding: 10px; 
-        border: 2px solid #ffcc5c; 
     }
     .kartu-absen { 
         background: rgba(255,255,255,0.9); 
-        border-radius: 25px; padding: 30px; 
+        border-radius: 25px; 
+        padding: 30px; 
         margin-bottom: 20px; 
         box-shadow: 0 8px 30px rgba(0,0,0,0.1); 
     }
     .stButton>button { 
         background: linear-gradient(45deg, #ff9a9e 0%, #fad0c4 100%); 
-        color: white !important; font-weight: 800 !important; 
-        font-size: 1.2rem !important; border-radius: 50px !important; 
-        height: 65px; width: 100%; border: none; 
+        color: white !important; 
+        font-weight: 800 !important; 
+        font-size: 1.2rem !important; 
+        border-radius: 50px !important; 
+        height: 65px; 
+        width: 100%; 
+        border: none; 
     }
     .sukses-banner { 
         background: linear-gradient(45deg, #43e97b, #38f9d7); 
-        border-radius: 20px; padding: 20px; 
-        text-align: center; color: white; 
-        font-size: 1.3rem; font-weight: 800; 
+        border-radius: 20px; 
+        padding: 20px; 
+        text-align: center; 
+        color: white; 
+        font-size: 1.3rem; 
+        font-weight: 800; 
         margin-top: 10px; 
+    }
+    .sudah-absen-banner {
+        background: linear-gradient(45deg, #f7971e, #ffd200);
+        border-radius: 20px;
+        padding: 20px;
+        text-align: center;
+        color: white;
+        font-size: 1.1rem;
+        font-weight: 800;
+        margin-top: 10px;
+    }
+    .rekap-header { 
+        background: linear-gradient(45deg, #667eea, #764ba2); 
+        color: white; 
+        border-radius: 15px; 
+        padding: 15px; 
+        font-weight: 800; 
+        text-align: center; 
     }
 </style>
 """, unsafe_allow_html=True)
 
 # --- 4. HEADER ---
 st.markdown('<h1 class="judul-ceria">🎒 Absensi Ceria</h1>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle-ceria">Petualangan Belajar Dimulai dari Absen!</p>', unsafe_allow_html=True)
+st.markdown(
+    '<p class="subtitle-ceria">Petualangan Belajar Dimulai dari Absen!</p>',
+    unsafe_allow_html=True
+)
 
-# --- JAM DIGITAL TANPA AUTOREFRESH ---
-# Pakai JavaScript saja untuk jam, tidak perlu refresh seluruh halaman
-st.markdown("""
-<div class="jam-digital" id="jam-box">🕐 Memuat waktu...</div>
+# --- JAM DIGITAL (JavaScript via components.html agar script berjalan) ---
+components.html("""
+<style>
+    .jam-box {
+        text-align: center;
+        font-size: 1.2rem;
+        font-weight: 800;
+        color: #444;
+        background: rgba(255,255,255,0.7);
+        border-radius: 15px;
+        padding: 10px;
+        border: 2px solid #ffcc5c;
+        font-family: 'Nunito', sans-serif;
+    }
+</style>
+<div class="jam-box" id="jam-box">🕐 Memuat waktu...</div>
 <script>
     function updateJam() {
         var now = new Date();
-        var options = { 
+        var optTanggal = {
             timeZone: 'Asia/Jakarta',
             weekday: 'long',
-            day: 'numeric', 
-            month: 'long', 
-            year: 'numeric',
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit', 
-            hour12: false 
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
         };
-        var formatted = now.toLocaleString('id-ID', options);
+        var optJam = {
+            timeZone: 'Asia/Jakarta',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        };
+        var tgl = now.toLocaleDateString('id-ID', optTanggal);
+        var jam = now.toLocaleTimeString('id-ID', optJam);
         var el = document.getElementById('jam-box');
-        if(el) el.innerHTML = '📅 ' + formatted + ' WIB';
+        if (el) el.innerHTML = '📅 ' + tgl + ' &nbsp;|&nbsp; 🕐 ' + jam + ' WIB';
     }
     setInterval(updateJam, 1000);
     updateJam();
 </script>
-""", unsafe_allow_html=True)
+""", height=60)
 
 # --- 5. FORM ABSENSI ---
 st.markdown('<div class="kartu-absen">', unsafe_allow_html=True)
 st.markdown("### 📝 Isi Absensi Kamu!")
 
 try:
-    # Ambil data dari cache, tidak request ulang tiap detik
     list_siswa = get_data_siswa()
 
     if list_siswa:
-        nama = st.selectbox("👤 Pilih Nama Kamu:", ["--- Pilih Nama ---"] + list_siswa)
+        nama = st.selectbox(
+            "👤 Pilih Nama Kamu:",
+            ["--- Pilih Nama ---"] + list_siswa
+        )
         status_raw = st.radio(
             "💬 Kabar Kamu Hari Ini:",
             ["😊 Hadir", "✉️ Izin", "🤢 Sakit"],
@@ -179,24 +241,36 @@ try:
             if nama == "--- Pilih Nama ---":
                 st.warning("⚠️ Pilih namamu dulu ya!")
             else:
-                ws_absen = get_worksheet("Sheet1")
                 now_server = datetime.now(pytz.timezone('Asia/Jakarta'))
-                ws_absen.append_row([
-                    now_server.strftime("%Y-%m-%d"),
-                    now_server.strftime("%H:%M:%S"),
-                    nama,
-                    status_raw.split(" ", 1)[1],
-                    keterangan
-                ])
-                # Clear cache absen setelah input baru
-                get_data_absen.clear()
-                st.markdown(
-                    f'<div class="sukses-banner">🎉 Hore! <b>{nama}</b> berhasil absen!</div>',
-                    unsafe_allow_html=True
-                )
-                st.balloons()
+                tanggal_hari_ini = now_server.strftime("%Y-%m-%d")
+
+                # Cek apakah sudah absen hari ini
+                if cek_sudah_absen(nama, tanggal_hari_ini):
+                    st.markdown(
+                        f'<div class="sudah-absen-banner">'
+                        f'⚠️ <b>{nama}</b> sudah absen hari ini!'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    ws_absen = get_worksheet("Sheet1")
+                    ws_absen.append_row([
+                        tanggal_hari_ini,
+                        now_server.strftime("%H:%M:%S"),
+                        nama,
+                        status_raw.split(" ", 1)[1],
+                        keterangan
+                    ])
+                    # Clear cache setelah input baru
+                    get_data_absen.clear()
+                    st.markdown(
+                        f'<div class="sukses-banner">'
+                        f'🎉 Hore! <b>{nama}</b> berhasil absen!</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.balloons()
     else:
-        st.warning("Data siswa kosong. Tambahkan nama di sheet DaftarSiswa.")
+        st.warning("⚠️ Data siswa kosong. Tambahkan nama di sheet DaftarSiswa.")
 
 except Exception as e:
     st.error(f"Kesalahan: {e}")
@@ -207,6 +281,14 @@ st.markdown('</div>', unsafe_allow_html=True)
 with st.expander("🔒 Menu Guru"):
     password = st.text_input("Password:", type="password")
     if password == st.secrets.get("guru_password", "guru123"):
+
+        # Tombol refresh manual
+        if st.button("🔄 Refresh Data"):
+            get_data_siswa.clear()
+            get_data_absen.clear()
+            st.success("✅ Data berhasil direfresh!")
+            st.rerun()
+
         tab1, tab2 = st.tabs(["👥 Data Siswa", "📊 Rekap"])
 
         with tab1:
@@ -214,8 +296,15 @@ with st.expander("🔒 Menu Guru"):
             try:
                 list_siswa_guru = get_data_siswa()
                 if list_siswa_guru:
-                    df_siswa = pd.DataFrame(list_siswa_guru, columns=["Nama Siswa"])
+                    df_siswa = pd.DataFrame(
+                        list_siswa_guru,
+                        columns=["Nama Siswa"]
+                    )
+                    df_siswa.index += 1
                     st.dataframe(df_siswa, use_container_width=True)
+                    st.info(f"Total siswa: {len(list_siswa_guru)} orang")
+                else:
+                    st.warning("Data siswa kosong.")
             except Exception as e:
                 st.error(f"Gagal memuat data siswa: {e}")
 
@@ -224,36 +313,76 @@ with st.expander("🔒 Menu Guru"):
             try:
                 data = get_data_absen()
                 if data:
+                    # Skip header jika ada
+                    if data[0][0].lower() == "tanggal":
+                        data = data[1:]
+
                     df_absen = pd.DataFrame(
                         data,
                         columns=["Tanggal", "Jam", "Nama", "Status", "Keterangan"]
                     )
 
+                    # Filter
                     st.markdown("#### 🔍 Filter Data")
                     col1, col2 = st.columns(2)
                     with col1:
                         filter_nama = st.text_input("Cari Nama:")
                     with col2:
-                        filter_tanggal = st.text_input("Cari Tanggal (YYYY-MM-DD):")
+                        filter_tanggal = st.date_input(
+                            "Pilih Tanggal:",
+                            value=None
+                        )
 
+                    df_filtered = df_absen.copy()
                     if filter_nama:
-                        df_absen = df_absen[
-                            df_absen["Nama"].str.contains(filter_nama, case=False)
+                        df_filtered = df_filtered[
+                            df_filtered["Nama"].str.contains(
+                                filter_nama, case=False, na=False
+                            )
                         ]
                     if filter_tanggal:
-                        df_absen = df_absen[df_absen["Tanggal"] == filter_tanggal]
+                        df_filtered = df_filtered[
+                            df_filtered["Tanggal"] == str(filter_tanggal)
+                        ]
 
-                    st.dataframe(df_absen, use_container_width=True)
+                    st.dataframe(df_filtered, use_container_width=True)
 
+                    # Ringkasan
                     st.markdown("#### 📈 Ringkasan")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total Hadir", len(df_absen[df_absen["Status"] == "Hadir"]))
+                        st.metric(
+                            "✅ Hadir",
+                            len(df_filtered[df_filtered["Status"] == "Hadir"])
+                        )
                     with col2:
-                        st.metric("Total Izin", len(df_absen[df_absen["Status"] == "Izin"]))
+                        st.metric(
+                            "✉️ Izin",
+                            len(df_filtered[df_filtered["Status"] == "Izin"])
+                        )
                     with col3:
-                        st.metric("Total Sakit", len(df_absen[df_absen["Status"] == "Sakit"]))
+                        st.metric(
+                            "🤢 Sakit",
+                            len(df_filtered[df_filtered["Status"] == "Sakit"])
+                        )
+                    with col4:
+                        st.metric(
+                            "📋 Total",
+                            len(df_filtered)
+                        )
+
+                    # Tombol Download CSV
+                    st.markdown("#### 💾 Download Data")
+                    csv = df_filtered.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="⬇️ Download Rekap CSV",
+                        data=csv,
+                        file_name=f"rekap_absen_{datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
                 else:
-                    st.info("Belum ada data absensi.")
+                    st.info("📭 Belum ada data absensi.")
             except Exception as e:
                 st.error(f"Gagal memuat rekap: {e}")
+    elif password != "":
+        st.error("❌ Password salah!")
