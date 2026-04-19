@@ -3,6 +3,5 @@ gspread>=6.0.0
 google-auth>=2.29.0
 pytz
 pandas>=2.2.0
-streamlit.components.v1  ← sudah ada
 plotly                    ← untuk grafik interaktif
 fpdf2                     ← untuk export PDF
