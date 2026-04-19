@@ -76,10 +76,19 @@ def get_worksheet(name):
             return sh.worksheet(name)
         except gspread.exceptions.WorksheetNotFound:
             ws = sh.add_worksheet(title=name, rows=1000, cols=10)
-            # Tambah header otomatis jika sheet baru
             ws.append_row(["Tanggal", "Jam", "Nama", "Status", "Keterangan"])
             return ws
     return None
+
+def rapikan_baris(baris, jumlah_kolom=5):
+    """
+    Pastikan setiap baris punya jumlah kolom yang sama
+    Jika kurang, tambahkan string kosong
+    """
+    baris = list(baris)
+    while len(baris) < jumlah_kolom:
+        baris.append("")
+    return baris[:jumlah_kolom]
 
 def cek_sudah_absen(nama, tanggal_hari_ini):
     """Cek apakah siswa sudah absen hari ini"""
@@ -157,14 +166,6 @@ st.markdown("""
         font-weight: 800;
         margin-top: 10px;
     }
-    .rekap-header { 
-        background: linear-gradient(45deg, #667eea, #764ba2); 
-        color: white; 
-        border-radius: 15px; 
-        padding: 15px; 
-        font-weight: 800; 
-        text-align: center; 
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -175,7 +176,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- JAM DIGITAL (JavaScript via components.html agar script berjalan) ---
+# --- JAM DIGITAL ---
 components.html("""
 <style>
     .jam-box {
@@ -244,7 +245,6 @@ try:
                 now_server = datetime.now(pytz.timezone('Asia/Jakarta'))
                 tanggal_hari_ini = now_server.strftime("%Y-%m-%d")
 
-                # Cek apakah sudah absen hari ini
                 if cek_sudah_absen(nama, tanggal_hari_ini):
                     st.markdown(
                         f'<div class="sudah-absen-banner">'
@@ -259,9 +259,8 @@ try:
                         now_server.strftime("%H:%M:%S"),
                         nama,
                         status_raw.split(" ", 1)[1],
-                        keterangan
+                        keterangan if keterangan else ""
                     ])
-                    # Clear cache setelah input baru
                     get_data_absen.clear()
                     st.markdown(
                         f'<div class="sukses-banner">'
@@ -282,7 +281,6 @@ with st.expander("🔒 Menu Guru"):
     password = st.text_input("Password:", type="password")
     if password == st.secrets.get("guru_password", "guru123"):
 
-        # Tombol refresh manual
         if st.button("🔄 Refresh Data"):
             get_data_siswa.clear()
             get_data_absen.clear()
@@ -314,13 +312,23 @@ with st.expander("🔒 Menu Guru"):
                 data = get_data_absen()
                 if data:
                     # Skip header jika ada
-                    if data[0][0].lower() == "tanggal":
+                    if len(data[0]) > 0 and data[0][0].lower() == "tanggal":
                         data = data[1:]
 
+                    # ✅ Rapikan semua baris menjadi 5 kolom
+                    data_rapih = [rapikan_baris(baris, 5) for baris in data]
+
                     df_absen = pd.DataFrame(
-                        data,
+                        data_rapih,
                         columns=["Tanggal", "Jam", "Nama", "Status", "Keterangan"]
                     )
+
+                    # Hapus baris yang semua kolomnya kosong
+                    df_absen = df_absen[
+                        df_absen["Tanggal"].str.strip() != ""
+                    ].reset_index(drop=True)
+
+                    df_absen.index += 1
 
                     # Filter
                     st.markdown("#### 🔍 Filter Data")
@@ -366,12 +374,9 @@ with st.expander("🔒 Menu Guru"):
                             len(df_filtered[df_filtered["Status"] == "Sakit"])
                         )
                     with col4:
-                        st.metric(
-                            "📋 Total",
-                            len(df_filtered)
-                        )
+                        st.metric("📋 Total", len(df_filtered))
 
-                    # Tombol Download CSV
+                    # Download CSV
                     st.markdown("#### 💾 Download Data")
                     csv = df_filtered.to_csv(index=False).encode("utf-8")
                     st.download_button(
@@ -384,5 +389,6 @@ with st.expander("🔒 Menu Guru"):
                     st.info("📭 Belum ada data absensi.")
             except Exception as e:
                 st.error(f"Gagal memuat rekap: {e}")
+
     elif password != "":
         st.error("❌ Password salah!")
